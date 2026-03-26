@@ -1,3 +1,5 @@
+"""Price scraper for Amazon Brasil product pages."""
+
 import logging
 from typing import Optional
 
@@ -20,7 +22,21 @@ PRICE_SELECTORS = [
 
 
 class AmazonScraper(BaseScraper):
+    """Scraper for Amazon Brasil (amazon.com.br) product pages.
+
+    Iterates through a prioritised list of CSS selectors to locate the
+    displayed price, handling layout variations across different product types.
+    """
+
     def scrape(self, url: str) -> Optional[float]:
+        """Extract the current price from an Amazon product page.
+
+        Args:
+            url: Full URL of the Amazon product page.
+
+        Returns:
+            Price as a float in BRL, or None if extraction failed.
+        """
         try:
             response = requests.get(url, headers=self.HEADERS, timeout=15)
             response.raise_for_status()
@@ -33,18 +49,15 @@ class AmazonScraper(BaseScraper):
                     price = self.clean_price(price_text)
                     if price:
                         logger.info(
-                            "Preço extraído da Amazon: R$ %.2f (seletor: %s)",
+                            "Price extracted from Amazon: R$ %.2f (selector: %s)",
                             price,
                             selector,
                         )
                         return price
 
-            logger.warning("Nenhum seletor encontrou o preço na Amazon para: %s", url)
+            logger.warning("No selector matched a price on Amazon for: %s", url)
             return None
 
         except requests.RequestException as exc:
-            logger.error("Erro de requisição ao acessar Amazon: %s", exc)
-            return None
-        except Exception as exc:
-            logger.error("Erro inesperado ao fazer scraping da Amazon: %s", exc)
+            logger.error("Request error while accessing Amazon: %s", exc)
             return None

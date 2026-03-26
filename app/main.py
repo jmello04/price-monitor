@@ -1,5 +1,8 @@
+"""Application entry point and lifespan management."""
+
 import logging
 from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 from fastapi import FastAPI
 
@@ -17,19 +20,30 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Manage application startup and shutdown resources.
+
+    On startup: initialises database tables and starts the background
+    price-check scheduler. On shutdown: stops the scheduler gracefully.
+
+    Args:
+        app: The FastAPI application instance.
+
+    Yields:
+        Control to FastAPI while the application is running.
+    """
     settings = get_settings()
-    logger.info("Iniciando Price Monitor...")
+    logger.info("Starting Price Monitor...")
     create_tables()
     scheduler = create_scheduler()
     scheduler.start()
     logger.info(
-        "Scheduler iniciado. Próxima verificação em %d hora(s).",
+        "Scheduler started. Next check in %d hour(s).",
         settings.CHECK_INTERVAL_HOURS,
     )
     yield
     scheduler.shutdown(wait=False)
-    logger.info("Price Monitor encerrado.")
+    logger.info("Price Monitor stopped.")
 
 
 app = FastAPI(
@@ -49,5 +63,10 @@ app.include_router(products_router)
 
 
 @app.get("/health", tags=["Status"])
-def health_check():
+def health_check() -> dict:
+    """Return a simple liveness probe response.
+
+    Returns:
+        A dict with status, service name and version.
+    """
     return {"status": "ok", "service": "price-monitor", "version": "1.0.0"}

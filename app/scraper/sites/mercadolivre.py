@@ -1,3 +1,5 @@
+"""Price scraper for Mercado Livre product pages."""
+
 import logging
 from typing import Optional
 
@@ -21,7 +23,21 @@ CENTS_SELECTORS = [
 
 
 class MercadoLivreScraper(BaseScraper):
+    """Scraper for Mercado Livre (mercadolivre.com.br) product pages.
+
+    Separately extracts the integer and decimal parts of the displayed price
+    to handle Mercado Livre's split price rendering pattern.
+    """
+
     def scrape(self, url: str) -> Optional[float]:
+        """Extract the current price from a Mercado Livre product page.
+
+        Args:
+            url: Full URL of the Mercado Livre product page.
+
+        Returns:
+            Price as a float in BRL, or None if extraction failed.
+        """
         try:
             response = requests.get(url, headers=self.HEADERS, timeout=15)
             response.raise_for_status()
@@ -36,7 +52,7 @@ class MercadoLivreScraper(BaseScraper):
 
             if not fraction_text:
                 logger.warning(
-                    "Nenhum seletor encontrou o preço no Mercado Livre para: %s", url
+                    "No selector matched a price on Mercado Livre for: %s", url
                 )
                 return None
 
@@ -51,12 +67,9 @@ class MercadoLivreScraper(BaseScraper):
             price = self.clean_price(price_text)
 
             if price:
-                logger.info("Preço extraído do Mercado Livre: R$ %.2f", price)
+                logger.info("Price extracted from Mercado Livre: R$ %.2f", price)
             return price
 
         except requests.RequestException as exc:
-            logger.error("Erro de requisição ao acessar Mercado Livre: %s", exc)
-            return None
-        except Exception as exc:
-            logger.error("Erro inesperado ao fazer scraping do Mercado Livre: %s", exc)
+            logger.error("Request error while accessing Mercado Livre: %s", exc)
             return None

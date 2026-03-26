@@ -1,3 +1,5 @@
+"""SMTP email notification utilities for price alerts."""
+
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -15,22 +17,38 @@ def send_price_alert(
     product_url: str,
     recipient_email: str,
 ) -> bool:
+    """Send an HTML price-drop alert email to the specified recipient.
+
+    If SMTP credentials are not configured the function logs a warning and
+    returns False without raising an exception, allowing the application to
+    continue operating without email support.
+
+    Args:
+        product_name: Display name of the monitored product.
+        current_price: Scraped price that triggered the alert.
+        target_price: Threshold price configured by the user.
+        product_url: Direct link to the product page.
+        recipient_email: Destination email address for the alert.
+
+    Returns:
+        True if the email was delivered successfully, False otherwise.
+    """
     settings = get_settings()
 
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         logger.warning(
-            "Credenciais SMTP não configuradas. Alerta de e-mail não enviado."
+            "SMTP credentials not configured. Price alert not sent."
         )
         return False
 
-    remetente = settings.SMTP_FROM or settings.SMTP_USER
+    sender = settings.SMTP_FROM or settings.SMTP_USER
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"[Price Monitor] Alerta de Preço — {product_name}"
-    msg["From"] = remetente
+    msg["From"] = sender
     msg["To"] = recipient_email
 
-    texto_simples = (
+    plain_text = (
         f"Boas notícias! O produto que você está monitorando atingiu o preço alvo.\n\n"
         f"Produto    : {product_name}\n"
         f"Preço atual: R$ {current_price:.2f}\n"
@@ -105,7 +123,7 @@ def send_price_alert(
 </body>
 </html>"""
 
-    msg.attach(MIMEText(texto_simples, "plain", "utf-8"))
+    msg.attach(MIMEText(plain_text, "plain", "utf-8"))
     msg.attach(MIMEText(html, "html", "utf-8"))
 
     try:
@@ -113,13 +131,13 @@ def send_price_alert(
             smtp.ehlo()
             smtp.starttls()
             smtp.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            smtp.sendmail(remetente, recipient_email, msg.as_string())
+            smtp.sendmail(sender, recipient_email, msg.as_string())
 
         logger.info(
-            "Alerta de preço enviado para %s (produto: %s)", recipient_email, product_name
+            "Price alert sent to %s (product: %s)", recipient_email, product_name
         )
         return True
 
     except (smtplib.SMTPException, OSError) as exc:
-        logger.error("Falha ao enviar e-mail de alerta: %s", exc)
+        logger.error("Failed to send price alert email: %s", exc)
         return False

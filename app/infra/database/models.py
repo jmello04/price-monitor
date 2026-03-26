@@ -1,3 +1,5 @@
+"""SQLAlchemy ORM models for the price monitoring domain."""
+
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
@@ -7,10 +9,29 @@ from app.infra.database.session import Base
 
 
 def _utcnow() -> datetime:
+    """Return the current UTC datetime.
+
+    Returns:
+        Timezone-aware datetime set to UTC.
+    """
     return datetime.now(timezone.utc)
 
 
 class Product(Base):
+    """Represents a product registered for price monitoring.
+
+    Attributes:
+        id: Auto-incremented primary key.
+        name: Human-readable product name.
+        url: Full URL of the product page used for scraping.
+        target_price: Price threshold that triggers an email alert.
+        email: Recipient address for price-drop notifications.
+        current_price: Last scraped price; None until the first check.
+        is_active: False when the product has been soft-deleted.
+        created_at: UTC timestamp of registration.
+        price_history: All recorded price observations for this product.
+    """
+
     __tablename__ = "products"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -31,6 +52,16 @@ class Product(Base):
 
 
 class PriceHistory(Base):
+    """Records a single price observation for a product.
+
+    Attributes:
+        id: Auto-incremented primary key.
+        product_id: Foreign key referencing the monitored product.
+        price: Scraped price value at the time of the check.
+        checked_at: UTC timestamp when the price was recorded.
+        product: Back-reference to the owning Product instance.
+    """
+
     __tablename__ = "price_history"
 
     id = Column(Integer, primary_key=True, index=True)
