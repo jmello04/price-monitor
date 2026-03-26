@@ -1,3 +1,5 @@
+"""REST endpoints for product monitoring."""
+
 import logging
 from typing import List
 
@@ -10,9 +12,8 @@ from app.core.schemas import (
     ProductHistoryResponse,
     ProductResponse,
 )
-from app.infra.database.models import PriceHistory, Product
 from app.infra.database.session import get_db
-from app.scheduler.tasks import check_product_price
+from app.services.product_service import ProductService
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +26,17 @@ router = APIRouter(prefix="/products", tags=["Produtos"])
     status_code=status.HTTP_201_CREATED,
     summary="Cadastrar produto para monitoramento",
 )
-def criar_produto(payload: ProductCreate, db: Session = Depends(get_db)):
-    produto = Product(
-        name=payload.name,
-        url=payload.url,
-        target_price=payload.target_price,
-        email=payload.email,
-    )
-    db.add(produto)
-    db.commit()
-    db.refresh(produto)
-    logger.info("Produto cadastrado: '%s' (id=%d)", produto.name, produto.id)
-    return produto
+def criar_produto(payload: ProductCreate, db: Session = Depends(get_db)) -> ProductResponse:
+    """Register a new product for automated price monitoring.
+
+    Args:
+        payload: Validated product creation data.
+        db: Injected database session.
+
+    Returns:
+        The created product resource.
+    """
+    return ProductService.create(db, payload)
 
 
 @router.get(
@@ -44,8 +44,16 @@ def criar_produto(payload: ProductCreate, db: Session = Depends(get_db)):
     response_model=List[ProductResponse],
     summary="Listar produtos monitorados",
 )
-def listar_produtos(db: Session = Depends(get_db)):
-    return db.query(Product).filter(Product.is_active.is_(True)).all()
+def listar_produtos(db: Session = Depends(get_db)) -> List[ProductResponse]:
+    """List all currently active monitored products.
+
+    Args:
+        db: Injected database session.
+
+    Returns:
+        List of active product resources.
+    """
+    return ProductService.list_active(db)
 
 
 @router.get(
@@ -53,32 +61,38 @@ def listar_produtos(db: Session = Depends(get_db)):
     response_model=ProductHistoryResponse,
     summary="Histórico de preços de um produto",
 )
-def historico_produto(product_id: int, db: Session = Depends(get_db)):
-    produto = db.query(Product).filter(Product.id == product_id).first()
-    if not produto:
+def historico_produto(product_id: int, db: Session = Depends(get_db)) -> ProductHistoryResponse:
+    """Return the full price history for a specific product.
+
+    Args:
+        product_id: Primary key of the product.
+        db: Injected database session.
+
+    Raises:
+        HTTPException: 404 if the product does not exist.
+
+    Returns:
+        Aggregated price history including min, max and current price.
+    """
+    product = ProductService.get_by_id(db, product_id)
+    if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Produto não encontrado.",
         )
 
-    historico = (
-        db.query(PriceHistory)
-        .filter(PriceHistory.product_id == product_id)
-        .order_by(PriceHistory.checked_at.desc())
-        .all()
-    )
-
-    precos = [h.price for h in historico]
+    history = ProductService.get_price_history(db, product_id)
+    prices = [h.price for h in history]
 
     return ProductHistoryResponse(
-        product=produto.name,
-        current_price=produto.current_price,
-        lowest_price=min(precos) if precos else None,
-        highest_price=max(precos) if precos else None,
-        target_price=produto.target_price,
+        product=product.name,
+        current_price=product.current_price,
+        lowest_price=min(prices) if prices else None,
+        highest_price=max(prices) if prices else None,
+        target_price=product.target_price,
         history=[
             PriceHistoryItem(price=h.price, checked_at=h.checked_at)
-            for h in historico
+            for h in history
         ],
     )
 
@@ -88,16 +102,23 @@ def historico_produto(product_id: int, db: Session = Depends(get_db)):
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Remover produto do monitoramento",
 )
-def remover_produto(product_id: int, db: Session = Depends(get_db)):
-    produto = db.query(Product).filter(Product.id == product_id).first()
-    if not produto:
+def remover_produto(product_id: int, db: Session = Depends(get_db)) -> None:
+    """Soft-delete a product, excluding it from future monitoring cycles.
+
+    Args:
+        product_id: Primary key of the product to remove.
+        db: Injected database session.
+
+    Raises:
+        HTTPException: 404 if the product does not exist.
+    """
+    product = ProductService.get_by_id(db, product_id)
+    if not product:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Produto não encontrado.",
         )
-    produto.is_active = False
-    db.commit()
-    logger.info("Produto removido do monitoramento: id=%d", product_id)
+    ProductService.deactivate(db, product)
 
 
 @router.post(
@@ -105,19 +126,23 @@ def remover_produto(product_id: int, db: Session = Depends(get_db)):
     response_model=ProductResponse,
     summary="Disparar verificação manual de preço",
 )
-def verificar_preco_manual(product_id: int, db: Session = Depends(get_db)):
-    produto = (
-        db.query(Product)
-        .filter(Product.id == product_id, Product.is_active.is_(True))
-        .first()
-    )
-    if not produto:
+def verificar_preco_manual(product_id: int, db: Session = Depends(get_db)) -> ProductResponse:
+    """Trigger an on-demand price check for a product.
+
+    Args:
+        product_id: Primary key of the active product to check.
+        db: Injected database session.
+
+    Raises:
+        HTTPException: 404 if the product is not found or inactive.
+
+    Returns:
+        The product resource with the refreshed current price.
+    """
+    product = ProductService.check_price(db, product_id)
+    if product is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Produto não encontrado.",
         )
-
-    check_product_price(product_id)
-    db.expire(produto)
-    db.refresh(produto)
-    return produto
+    return product

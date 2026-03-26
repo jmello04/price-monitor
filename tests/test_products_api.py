@@ -109,7 +109,7 @@ def test_verificacao_manual_retorna_produto(client):
     resp = client.post("/products/", json=PRODUTO_BASE)
     product_id = resp.json()["id"]
 
-    with patch("app.api.routes.products.check_product_price") as mock_check:
+    with patch("app.services.product_service.check_product_price") as mock_check:
         mock_check.return_value = None
         response = client.post(f"/products/{product_id}/check")
 
@@ -119,7 +119,7 @@ def test_verificacao_manual_retorna_produto(client):
 
 
 def test_verificacao_manual_produto_nao_encontrado(client):
-    with patch("app.api.routes.products.check_product_price"):
+    with patch("app.services.product_service.check_product_price"):
         response = client.post("/products/9999/check")
     assert response.status_code == 404
 
